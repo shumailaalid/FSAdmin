@@ -160,8 +160,7 @@ with col2:
     st.markdown(f"- **Total Paid by Insurance:** ${estimated_insurance:.2f}")
     st.markdown(f"- **Total if Patient Pays All Upfront:** ${total_all_upfront:.2f}")
     st.markdown(f"- **Grand Total (Combined):** ${total_all_upfront:.2f}")
-    st.checkbox("Monthly Rental", value=True)
-    st.checkbox("Lump Sum Payment", value=False)
+  
 
     if st.button("Generate PDF Report"):
         buffer = io.BytesIO()
@@ -175,7 +174,7 @@ with col2:
         elements = []
 
         # logo (optional)
-        logo_path = os.path.join(os.path.dirname(__file__), "FSlogo.png")
+        logo_path = os.path.join(os.path.dirname(__file__), "SFlogo.png")
         if os.path.isfile(logo_path):
             with open(logo_path, "rb") as f:
                 elements.append(Image(io.BytesIO(f.read()), width=80, height=40))
