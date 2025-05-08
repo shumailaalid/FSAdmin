@@ -12,9 +12,7 @@ import os
 
 # Get folder where this script lives
 
-# (Optionally verify it exists)
-if not os.path.isfile(LOGO_PATH):
-    st.error(f"Logo file not found at {LOGO_PATH}")
+
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
