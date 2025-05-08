@@ -203,8 +203,8 @@ with col2:
         try:
             with open(LOGO_PATH, "rb") as logo_file:
                 logo_data = logo_file.read()
-        except Exception:
-            st.error("Error: FSlogo.png not found for PDF header")
+        except Exception as e:
+            st.error("Error: SFlogo.png not found for PDF header", e)
 
         if logo_data:
             elements.append(Image(io.BytesIO(logo_data), width=320, height=60))
@@ -269,7 +269,7 @@ with col2:
         ))
 
         # Build PDF with watermark
-        doc.build(elements, onFirstPage=add_watermark, onLaterPages=add_watermark)
+        doc.build(elements)#, onFirstPage=add_watermark, onLaterPages=add_watermark)
         buffer.seek(0)
 
         st.success("PDF generated!")
