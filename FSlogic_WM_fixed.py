@@ -177,7 +177,7 @@ with col2:
 
 
 
-        logo_filename = "SFlogo.png"
+        logo_filename = "SFlogo.PNG"
         # either relative to this script:
         
         logo_path = os.path.join(os.path.dirname(__file__), logo_filename)
