@@ -8,6 +8,13 @@ from reportlab.platypus import (
     SimpleDocTemplate, Table, TableStyle,
     Paragraph, Spacer, Image
 )
+import os
+
+# Get folder where this script lives
+
+# (Optionally verify it exists)
+if not os.path.isfile(LOGO_PATH):
+    st.error(f"Logo file not found at {LOGO_PATH}")
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
@@ -16,6 +23,9 @@ st.set_page_config(
     page_title="CPAP EOB Calculator",
     layout="wide"
 )
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOGO_PATH = os.path.join(BASE_DIR, "SFlogo.png")
 
 # --- Sidebar Inputs ---
 st.sidebar.title("Insurance Parameters")
@@ -188,7 +198,8 @@ with col2:
         elements = []
 
         # Logo + Header
-        elements.append(Image('SFlogo.png', width=320, height=60))
+        #elements.append(Image('SFlogo.png', width=320, height=60))
+        elements.append(Image(LOGO_PATH, width=320, height=60))
         elements.append(Spacer(1, 6))
         header_text = (
             f"Patient Name: __________________   "
