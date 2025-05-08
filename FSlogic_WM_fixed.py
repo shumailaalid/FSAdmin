@@ -12,6 +12,7 @@ import os
 
 # Get folder where this script lives
 
+# (Optionally verify it exists)
 
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -197,7 +198,16 @@ with col2:
 
         # Logo + Header
         #elements.append(Image('SFlogo.png', width=320, height=60))
-        elements.append(Image(LOGO_PATH, width=320, height=60))
+        #elements.append(Image(LOGO_PATH, width=320, height=60))
+        logo_data = None
+        try:
+            with open(LOGO_PATH, "rb") as logo_file:
+                logo_data = logo_file.read()
+        except Exception:
+            st.error("Error: FSlogo.png not found for PDF header")
+
+        if logo_data:
+            elements.append(Image(io.BytesIO(logo_data), width=320, height=60))
         elements.append(Spacer(1, 6))
         header_text = (
             f"Patient Name: __________________   "
