@@ -3,8 +3,12 @@ import pandas as pd
 from datetime import date
 import io
 import calendar
+import os
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image
+from reportlab.platypus import (
+    SimpleDocTemplate, Table, TableStyle,
+    Paragraph, Spacer, Image
+)
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
@@ -30,7 +34,8 @@ oop_met = st.sidebar.number_input(
     "OOP Max Already Met", min_value=0.0, value=912.51, step=1.0, format="%.2f"
 )
 coinsurance_rate = st.sidebar.number_input(
-    "Coinsurance Rate (%)", min_value=0.0, max_value=100.0, value=20.0, step=1.0, format="%.0f"
+    "Coinsurance Rate (%)", min_value=0.0, max_value=100.0,
+    value=20.0, step=1.0, format="%.0f"
 ) / 100.0
 reset_date = st.sidebar.date_input("Deductible Resets On", value=date(2026, 1, 1))
 
@@ -49,7 +54,7 @@ fee_schedule = [
 ded_remaining = max(deductible_total - deductible_met, 0.0)
 oop_remaining = max(oop_max - oop_met, 0.0)
 
-# --- Build Setup Charges Table (all codes including month1 rentals) ---
+# --- Build Setup Charges Table (includes first month rental) ---
 lines = []
 for item in fee_schedule:
     if item["type"] == "one-time":
@@ -58,48 +63,37 @@ for item in fee_schedule:
             "Description": item["desc"],
             "Price": round(item["charge"], 2)
         })
-    elif item["type"] == "monthly":
+    else:  # monthly -> first-month entry
         lines.append({
             "Code": item["code"],
             "Description": f"{item['desc']} (1st Month)",
             "Price": round(item["charge"], 2)
         })
-# build setup table
 df_setup = pd.DataFrame(lines)
 
-# --- Page watermark function ---
-def add_watermark(canvas, doc):
-    canvas.saveState()
-    # Medium gray watermark text for visibility
-    canvas.setFont('Helvetica', 60)
-    canvas.setFillColorRGB(0.7, 0.7, 0.7)
-    width, height = letter
-    canvas.drawCentredString(width/2, height/2, "TEST WATERMARK")
-    canvas.restoreState()
-
 # --- Compute Monthly Rental Schedule and Totals ---
-# Deductible resets on the specified reset month every year
 year_ded_remaining = max(deductible_total - deductible_met, 0.0)
 schedule = []
-max_months = max(i.get("months", 0) for i in fee_schedule if i["type"] == "monthly")
-for m in range(1, max_months + 1):
-    allowed = sum(i["charge"] for i in fee_schedule if i["type"] == "monthly")
-    # determine rental month date
+max_months = max(i["months"] for i in fee_schedule if i["type"]=="monthly")
+
+for m in range(2, max_months + 1):
+    allowed = sum(i["charge"] for i in fee_schedule if i["type"]=="monthly")
     month_index = (eff_date.month + m - 2) % 12 + 1
     month_name = calendar.month_name[month_index]
-    # reset deductible when month matches reset_date.month
     if month_index == reset_date.month:
-        year_ded_remaining = max(deductible_total - 0, 0.0)
+        year_ded_remaining = deductible_total
+
     # apply deductible
     if year_ded_remaining > 0:
-        use_ded = min(allowed, year_ded_remaining)
-        pat = use_ded
-        year_ded_remaining -= use_ded
-        rem = allowed - use_ded
+        use = min(allowed, year_ded_remaining)
+        pat = use
+        year_ded_remaining -= use
+        rem = allowed - use
     else:
         pat = 0.0
         rem = allowed
-    # apply coinsurance / OOP on remaining
+
+    # coinsurance/OOP on remainder
     if rem > 0:
         if oop_remaining > 0:
             coins_pat = min(rem * coinsurance_rate, oop_remaining)
@@ -111,107 +105,144 @@ for m in range(1, max_months + 1):
             ins = rem
     else:
         ins = 0.0
+
     schedule.append({
         "Month": month_name,
         "Patient Pays": round(pat, 2),
         "Insurance Pays": round(ins, 2)
     })
-# build schedule DataFrame
-df_schedule = pd.DataFrame(schedule)
+
 df_schedule = pd.DataFrame(schedule)
 
-# --- Calculate Totals ---
-supply_total = sum(i["charge"] for i in fee_schedule if i["type"] == "one-time")
-monthly_total = sum(i["charge"] for i in fee_schedule if i["type"] == "monthly")
-estimated_patient = df_setup["Price"].sum() + df_schedule["Patient Pays"].sum()
+# --- Calculate Totals (keep logic same) ---
+supply_total    = sum(i["charge"] for i in fee_schedule if i["type"]=="one-time")
+monthly_total   = sum(i["charge"] for i in fee_schedule if i["type"]=="monthly")
+estimated_patient   = df_setup["Price"].sum() + df_schedule["Patient Pays"].sum()
 estimated_insurance = df_schedule["Insurance Pays"].sum()
-# total upfront: supplies + 10 months rental
-max_months = max(i.get("months", 0) for i in fee_schedule if i["type"] == "monthly")
-total_all_upfront = supply_total + monthly_total * max_months
+total_all_upfront   = supply_total + monthly_total * max_months
 
-gr_and_total = total_all_upfront
-
-# --- PDF Table Styles ---
-table_style = TableStyle([
-    ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+# --- PDF Styles ---
+table_style  = TableStyle([
+    ('GRID',       (0,0), (-1,-1), 0.5, colors.black),
     ('BACKGROUND', (0,0), (-1,0), colors.lightgrey),
-    ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-    ('FONTSIZE', (0,0), (-1,-1), 8),
+    ('ALIGN',      (0,0), (-1,-1), 'CENTER'),
+    ('FONTSIZE',   (0,0), (-1,-1), 8),
 ])
 header_style = ParagraphStyle('header', fontSize=10, leading=12)
 footer_style = ParagraphStyle('footer', fontSize=8, leading=10)
 
 # --- Main Layout ---
 col1, col2 = st.columns([3, 1], gap="large")
+
 with col1:
     st.header("Setup Charges Breakdown")
     edited_setup = st.data_editor(
         df_setup,
         column_config={
-            "Code": st.column_config.TextColumn("CPT Code"),
+            "Code":        st.column_config.TextColumn("CPT Code"),
             "Description": st.column_config.TextColumn("Description"),
-            "Price": st.column_config.NumberColumn("Price ($)")
+            "Price":       st.column_config.NumberColumn("Price ($)")
         },
         hide_index=True,
         use_container_width=True
     )
+    # ← CRITICAL: use the edited table for everything that follows
+    df_setup = edited_setup.copy()
+
     st.markdown(f"**Setup Total:** ${df_setup['Price'].sum():.2f}")
+
     st.header("Monthly Rental Schedule (Months 2+)")
     st.dataframe(df_schedule, use_container_width=True, hide_index=True)
+
 with col2:
     st.header("Estimated Totals")
     st.markdown(f"- **Total Paid by Patient:** ${estimated_patient:.2f}")
     st.markdown(f"- **Total Paid by Insurance:** ${estimated_insurance:.2f}")
     st.markdown(f"- **Total if Patient Pays All Upfront:** ${total_all_upfront:.2f}")
     st.markdown(f"- **Grand Total (Combined):** ${total_all_upfront:.2f}")
- 
+    st.checkbox("Monthly Rental", value=True)
+    st.checkbox("Lump Sum Payment", value=False)
 
     if st.button("Generate PDF Report"):
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(buffer, pagesize=letter,
-                                 leftMargin=20, rightMargin=20, topMargin=20, bottomMargin=20)
+        doc = SimpleDocTemplate(
+            buffer,
+            pagesize=letter,
+            leftMargin=20, rightMargin=20, topMargin=20, bottomMargin=20
+        )
         styles = getSampleStyleSheet()
         body_style = ParagraphStyle('body', parent=styles['BodyText'], fontSize=8, leading=10)
         elements = []
-        try:
-            elements.append(Image('SFlogo.png', width=320, height=60))
-        except:
-            pass
+
+        # logo (optional)
+        logo_path = os.path.join(os.path.dirname(__file__), "FSlogo.png")
+        if os.path.isfile(logo_path):
+            with open(logo_path, "rb") as f:
+                elements.append(Image(io.BytesIO(f.read()), width=80, height=40))
         elements.append(Spacer(1, 6))
-        header_text = f"Patient Name: __________________   DOB: __________   Date: {date.today().strftime('%m/%d/%Y')}"
-        elements.append(Paragraph(header_text, header_style))
+
+        # header
+        elements.append(Paragraph(
+            f"Patient Name: __________________   "
+            f"DOB: __________   Date: {date.today():%m/%d/%Y}",
+            header_style
+        ))
         elements.append(Spacer(1, 12))
+
+        # Table 1: edited setup
         elements.append(Paragraph("1) Total Due Now (Supplies + First Month)", body_style))
         data1 = [["CPT Code", "Description", "Price ($)"]]
-        for _, r in edited_setup.iterrows():
+        for _, r in df_setup.iterrows():
             data1.append([r['Code'], r['Description'], f"${r['Price']:.2f}"])
         t1 = Table(data1, colWidths=[60, 200, 80], hAlign='LEFT')
         t1.setStyle(table_style)
         elements += [t1, Spacer(1, 10)]
+
+        # Table 2: rentals
         elements.append(Paragraph("2) Monthly Rental Schedule", body_style))
         data2 = [["Month", "Patient Pays", "Insurance Pays"]]
         for _, r in df_schedule.iterrows():
-            data2.append([r['Month'], f"${r['Patient Pays']:.2f}", f"${r['Insurance Pays']:.2f}"])
-        t2 = Table(data2, colWidths=[100, 100, 100], hAlign='LEFT')
+            data2.append([
+                r['Month'],
+                f"${r['Patient Pays']:.2f}",
+                f"${r['Insurance Pays']:.2f}"
+            ])
+        t2 = Table(data2, colWidths=[100,100,100], hAlign='LEFT')
         t2.setStyle(table_style)
         elements += [t2, Spacer(1, 10)]
-        data3 = [["Category", "Total"], ["Patient Paid", f"${estimated_patient:.2f}"], ["Insurance Paid", f"${estimated_insurance:.2f}"]]
-        t3 = Table(data3, colWidths=[180, 100], hAlign='LEFT')
-        t3.setStyle(table_style)
+
+        # Tables 3–5
+        data3 = [["Category","Total"],
+                 ["Patient Paid",   f"${estimated_patient:.2f}"],
+                 ["Insurance Paid", f"${estimated_insurance:.2f}"]]
+        t3 = Table(data3, colWidths=[180,100], hAlign='LEFT'); t3.setStyle(table_style)
         elements += [Paragraph("3) Estimated Totals", body_style), t3, Spacer(1, 10)]
+
         data4 = [["If patient prefers full upfront payment:", f"${estimated_patient:.2f}"]]
-        t4 = Table(data4, colWidths=[180, 100], hAlign='LEFT')
-        t4.setStyle(table_style)
+        t4 = Table(data4, colWidths=[180,100], hAlign='LEFT'); t4.setStyle(table_style)
         elements += [Paragraph("4) Optional Full Prepay Amount", body_style), t4, Spacer(1, 10)]
-        data5 = [["Description", "Total"], ["Combined Cost", f"${total_all_upfront:.2f}"]]
-        t5 = Table(data5, colWidths=[180, 100], hAlign='LEFT')
-        t5.setStyle(table_style)
+
+        data5 = [["Description","Total"],["Combined Cost",f"${total_all_upfront:.2f}"]]
+        t5 = Table(data5, colWidths=[180,100], hAlign='LEFT'); t5.setStyle(table_style)
         elements += [Paragraph("5) Overall Cost Summary", body_style), t5, Spacer(1, 12)]
-        elements.append(Paragraph("Please select one:   [ ] Monthly Rental Option     [ ] Lump Sum Payment", footer_style))
-        elements.append(Spacer(1, 6))
-        elements.append(Paragraph("Patient Signature: __________________   Date: __________________", footer_style))
-        # Build PDF with watermark
-        doc.build(elements)#, onFirstPage=add_watermark, onLaterPages=add_watermark)
+
+        elements.append(Paragraph(
+            "Please select one:   [ ] Monthly Rental Option     [ ] Lump Sum Payment",
+            footer_style
+        ))
+        elements.append(Spacer(1,6))
+        elements.append(Paragraph(
+            "Patient Signature: __________________   Date: __________________",
+            footer_style
+        ))
+
+        # Build PDF (no watermark)
+        doc.build(elements)
         buffer.seek(0)
         st.success("PDF generated!")
-        st.download_button("Download PDF", data=buffer, file_name="cpap_eob.pdf", mime="application/pdf")
+        st.download_button(
+            "Download PDF",
+            data=buffer,
+            file_name="cpap_eob.pdf",
+            mime="application/pdf"
+        )
