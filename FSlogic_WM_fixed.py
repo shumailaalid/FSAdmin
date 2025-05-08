@@ -174,10 +174,23 @@ with col2:
         elements = []
 
         # logo (optional)
-        logo_path = os.path.join(os.getcwd(), "SFlogo.png")
+
+
+
+        logo_filename = "SFlogo.png"
+        # either relative to this script:
+        
+        logo_path = os.path.join(os.path.dirname(__file__), logo_filename)
+        # or simpler, relative to the app’s cwd:
+        # logo_path = os.path.join(os.getcwd(), logo_filename)
+
+        st.write("Logo path:", logo_path, "Exists?", os.path.isfile(logo_path))
+
         if os.path.isfile(logo_path):
             with open(logo_path, "rb") as f:
                 elements.append(Image(io.BytesIO(f.read()), width=320, height=60))
+        else:
+            st.error(f"⚠️ Could not find {logo_filename} at {logo_path}")
         elements.append(Spacer(1, 6))
 
         # header
